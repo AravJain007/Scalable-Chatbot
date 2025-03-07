@@ -1,0 +1,62 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:13
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: myuser        # adjust as needed
+      POSTGRES_PASSWORD: mypassword  # adjust as needed
+      POSTGRES_DB: mydb            # adjust as needed
+    volumes:
+      - data/postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    # The deploy section is only used in Docker Swarm mode.
+    deploy:
+      replicas: 1
+
+  redis:
+    image: redis:6
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - data/redis-data:/data
+    deploy:
+      replicas: 1
+    # To change the replica count when using non-swarm mode, you can use:
+    # docker-compose up --scale redis=1
+
+  pgbouncer:
+    image: edoburu/pgbouncer
+    container_name: pgbouncer
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      # These environment variables are placeholders.
+      DB_HOST: postgres
+      DB_USER: myuser
+      DB_PASSWORD: mypassword
+      DB_NAME: mydb
+    ports:
+      - "6432:6432"
+    volumes:
+      - ./pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+
+  ollama:
+    image: ollama/ollama:latest  # Replace with the correct image if different
+    container_name: ollama
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+    ports:
+      - "8080:8080"
+
+volumes:
+  postgres-data: 
+  redis-data:

@@ -1,104 +1,226 @@
+# ollama_chatbot.py
 import streamlit as st
+import hashlib
+from datetime import datetime
+import pytz
 from backend.config import Config
-from backend.util.llm_helper import chat, stream_parser
+from backend.utils.llm_helper import chat, stream_parser
+from backend.utils.postgres_manager import PostgresManager
+from backend.utils.redis_manager import RedisManager
 
-# Set page configuration
-st.set_page_config(
-    page_title=Config.PAGE_TITLE,
-    initial_sidebar_state="expanded"
-)
-st.title(Config.PAGE_TITLE)
+def format_datetime(dt):
+    """Format datetime to a user-friendly string (e.g., "6th March 2025, 7:00 pm")"""
+    if not dt:
+        return ""
+    
+    # Convert to user's timezone if needed (default to UTC)
+    local_tz = pytz.timezone('UTC')  # Replace with user's timezone
+    if dt.tzinfo is None:
+        dt = pytz.utc.localize(dt)
+    local_dt = dt.astimezone(local_tz)
+    
+    # Format the date with day suffix (e.g., 1st, 2nd, 3rd)
+    day = local_dt.day
+    if 4 <= day <= 20 or 24 <= day <= 30:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+    
+    return local_dt.strftime(f"%-d{suffix} %B %Y, %-I:%M %p")
 
-# Sidebar navigation
-with st.sidebar:
-    st.markdown("# Chat Options")
-    model = st.selectbox('What model would you like to use?', Config.OLLAMA_MODELS)
-
-# Initialize session state for messages
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-# Display existing chat messages
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-
-if model == "deepseek-r1:1.5b":
-    # User input
-    if user_prompt := st.chat_input("What would you like to ask?"):
-        # Display user message
-        with st.chat_message("user"):
-            st.markdown(user_prompt)
-        
-        # Add user message to session state
-        st.session_state.messages.append({"role": "user", "content": user_prompt})
-
-        # Retrieve response from model
-        llm_stream = chat(user_prompt, model=model)
-        
-        # Create a status container for thinking state
-        with st.status("Thinking...", expanded=True) as status:
-            try:
-                # Collect and display only thinking tokens
-                thinking_placeholder = st.empty()
-                thinking_response = ""
-                
-                for token in stream_parser(llm_stream):
-                    if token == "<think>":
-                        continue
-                    elif token != "</think>" and token != "<think>":
-                        thinking_response += token
-                        thinking_placeholder.markdown(thinking_response)
-                    elif token == "</think>":
-                        break
-                
-                # Update status
-                status.update(label="Thinking complete", state="complete", expanded=False)
-            
-            except Exception as e:
-                status.update(label=f"Error: {str(e)}", state="error", expanded=True)
-        
-        # Display assistant response
-        with st.chat_message("assistant"):
-            output_response = ""
-            output_placeholder = st.empty()
-            
-            for token in stream_parser(llm_stream):
-                if token and token not in ["<think>", "</think>"]:
-                    output_response += token
-                    output_placeholder.markdown(output_response)
-        
-        # Add assistant response to session state
-        st.session_state.messages.append({"role": "assistant", "content": output_response})
-
-elif model == "granite3.2-vision":
-    uploaded_files = st.file_uploader(
-        "Choose a CSV file", accept_multiple_files=True
+def main():
+    # Set page configuration
+    st.set_page_config(
+        page_title=Config.PAGE_TITLE,
+        initial_sidebar_state="expanded"
     )
-    for uploaded_file in uploaded_files:
-        bytes_data = uploaded_file.read()
-        st.write("filename:", uploaded_file.name)
-        st.write(bytes_data)
-    if user_prompt := st.chat_input("What would you like to ask?"):
+    st.title(Config.PAGE_TITLE)
+    
+    # Ensure user is logged in
+    if 'user_id' not in st.session_state:
+        st.warning("Please log in to use the chat application")
+        st.stop()
+    
+    user_id = st.session_state.user_id
+    
+    # Initialize session states
+    if "active_session_id" not in st.session_state:
+        st.session_state.active_session_id = None
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+    if "model" not in st.session_state:
+        st.session_state.model = Config.OLLAMA_MODELS[0]
+    
+    # Function to start a new chat session
+    def start_new_session():
+        st.session_state.active_session_id = None
+        st.session_state.messages = []
+        st.session_state.model = Config.OLLAMA_MODELS[0]
+    
+    # Function to load a chat session
+    def load_chat_session(session_id):
+        messages = PostgresManager.get_session_messages(session_id)
+        st.session_state.active_session_id = session_id
+        st.session_state.messages = [{
+            "role": msg["role"],
+            "content": msg["content"]
+        } for msg in messages]
+        
+        # Also update the session model if available
+        session_info = PostgresManager.get_session_preview(session_id)
+        if session_info and 'info' in session_info:
+            st.session_state.model = session_info['info']['model_name']
+    
+    # Sidebar for navigation and chat history
+    with st.sidebar:
+        st.markdown("# Chat Options")
+        
+        # New Session button at the top
+        if st.button("➕ New Chat Session", key="new_session"):
+            start_new_session()
+            st.experimental_rerun()
+        
+        # Model selection
+        st.session_state.model = st.selectbox(
+            'Model', 
+            Config.OLLAMA_MODELS,
+            index=Config.OLLAMA_MODELS.index(st.session_state.model) if st.session_state.model in Config.OLLAMA_MODELS else 0
+        )
+        
+        # Display chat history
+        st.markdown("## Chat History")
+        
+        # Retrieve user's chat sessions
+        chat_sessions = PostgresManager.get_user_chat_sessions(user_id)
+        
+        if not chat_sessions:
+            st.info("No previous chat sessions found.")
+        
+        # Display each session with formatted timestamps
+        for session in chat_sessions:
+            session_title = session['title']
+            formatted_date = format_datetime(session['updated_at'])
+            
+            # Create a special button that looks like a session entry
+            if st.button(
+                f"**{session_title}**\n{formatted_date}",
+                key=f"session_{session['session_id']}",
+                help="Click to load this chat session"
+            ):
+                load_chat_session(session['session_id'])
+                st.experimental_rerun()
+    
+    # Main chat area
+    if not st.session_state.active_session_id and not st.session_state.messages:
+        # Welcome message for new sessions
+        st.markdown("## Welcome to a New Chat Session!")
+        st.markdown("Select a model and start typing to begin your conversation.")
+    
+    # Display existing chat messages
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+    
+    # User input area
+    user_prompt = st.chat_input("Type your message here...")
+    
+    # Handle user input
+    if user_prompt:
+        model = st.session_state.model
+        
+        # Create session if not exists
+        if not st.session_state.active_session_id:
+            session_id = PostgresManager.create_chat_session(
+                user_id, 
+                model, 
+                title=user_prompt[:50] + "..." if len(user_prompt) > 50 else user_prompt
+            )
+            st.session_state.active_session_id = session_id
+        
         # Display user message
         with st.chat_message("user"):
             st.markdown(user_prompt)
         
         # Add user message to session state
         st.session_state.messages.append({"role": "user", "content": user_prompt})
-
-        # Retrieve response from model
-        llm_stream = chat(user_prompt, model=model)
         
-        # Display assistant response
-        with st.chat_message("assistant"):
-            output_response = ""
-            output_placeholder = st.empty()
+        # Save user message to database
+        PostgresManager.add_message(st.session_state.active_session_id, "user", user_prompt)
+        
+        # Cache key for potentially reusing responses
+        cache_key = f"chat:{model}:{hashlib.md5(user_prompt.encode()).hexdigest()}"
+        cached_response = RedisManager.get_cached_response(cache_key)
+        
+        if cached_response:
+            # Use cached response
+            output_response = cached_response
+        else:
+            # Handle special models with thinking capabilities
+            if model == "deepseek-r1:1.5b":
+                # Get response from model with thinking
+                llm_stream = chat(user_prompt, model, images=None)
+                
+                # Create a status container for thinking state
+                with st.status("Thinking...", expanded=True) as status:
+                    try:
+                        # Collect and display only thinking tokens
+                        thinking_placeholder = st.empty()
+                        thinking_response = ""
+                        
+                        for token in stream_parser(llm_stream):
+                            if token == "<think>":
+                                continue
+                            elif token != "</think>" and token != "<think>":
+                                thinking_response += token
+                                thinking_placeholder.markdown(thinking_response)
+                            elif token == "</think>":
+                                break
+                        
+                        # Update status
+                        status.update(label="Thinking complete", state="complete", expanded=False)
+                    
+                    except Exception as e:
+                        status.update(label=f"Error: {str(e)}", state="error", expanded=True)
+                
+                # Display assistant response
+                with st.chat_message("assistant"):
+                    output_response = ""
+                    output_placeholder = st.empty()
+                    
+                    for token in stream_parser(llm_stream):
+                        if token and token not in ["<think>", "</think>"]:
+                            output_response += token
+                            output_placeholder.markdown(output_response)
             
-            for token in stream_parser(llm_stream):
-                if token and token not in ["<think>", "</think>"]:
-                    output_response += token
-                    output_placeholder.markdown(output_response)
+            # Handle vision models
+            elif model == "granite3.2-vision":
+                uploaded_files = st.session_state.get('uploaded_files', [])
+                img_data = None
+                
+                if uploaded_files:
+                    img_data = uploaded_files[0]
+                
+                # Get response from model
+                llm_stream = chat(user_prompt, model, img_data)
+                
+                # Display assistant response
+                with st.chat_message("assistant"):
+                    output_response = ""
+                    output_placeholder = st.empty()
+                    
+                    for token in stream_parser(llm_stream):
+                        if token and token not in ["<think>", "</think>"]:
+                            output_response += token
+                            output_placeholder.markdown(output_response)
+            
+            # Cache the response
+            RedisManager.cache_response(cache_key, output_response)
         
         # Add assistant response to session state
         st.session_state.messages.append({"role": "assistant", "content": output_response})
+        
+        # Save assistant response to database
+        PostgresManager.add_message(st.session_state.active_session_id, "assistant", output_response)
+
+if __name__ == "__main__":
+    main()

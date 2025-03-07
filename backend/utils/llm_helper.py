@@ -2,8 +2,10 @@ import ollama
 from backend.config import Config
 
 system_prompt = Config.SYSTEM_PROMPT
+# Set Ollama host to connect to Kubernetes service via NodePort
+ollama.host = f"http://localhost:{Config.OLLAMA_PORT}"
 
-def chat(user_prompt, model, images):
+def chat(user_prompt, model, images:None):
     if model == "deepseek-r1:1.5b":
         stream = ollama.chat(
             model=model,
@@ -17,7 +19,7 @@ def chat(user_prompt, model, images):
         stream = ollama.chat(
             model=model,
             messages=[{'role': 'assistant', 'content': system_prompt, "images":[]},
-                    {'role': 'user', 'content': f"{user_prompt}", 'images':[images]}],
+                    {'role': 'user', 'content': f"{user_prompt}", 'images':[images] if images else []}],
             stream=True,
         )
 

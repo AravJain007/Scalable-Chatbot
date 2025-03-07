@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama-deployment
+  namespace: app-infrastructure
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      nodeSelector:
+        gpu: "true"  # Ensure pods land on GPU-equipped nodes
+      containers:
+      - name: ollama
+        image: ollama/ollama
+        resources:
+          requests:
+            memory: "4Gi"
+            cpu: "4"
+            nvidia.com/gpu: "1"
+          limits:
+            memory: "8Gi"
+            cpu: "8"
+            nvidia.com/gpu: "1"
+        ports:
+        - containerPort: 11434
+        volumeMounts:
+        - name: models-storage
+          mountPath: /usr/share/ollama
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 11434
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 11434
+          initialDelaySeconds: 60
+          periodSeconds: 20
+          timeoutSeconds: 10
+        lifecycle:
+          postStart:
+            exec:
+              command: ["/bin/sh", "-c", "ollama run deepseek-r1:1.5b && ollama run granite3.2-vision"]
+      volumes:
+      - name: models-storage
+        hostPath:
+          path: /usr/share/ollama
+          type: DirectoryOrCreate
+      
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-service
+  namespace: app-infrastructure
+spec:
+  selector:
+    app: ollama
+  ports:
+    - protocol: TCP
+      port: 11434
+      targetPort: 11434
+  type: ClusterIP
+
+---
+# ollama-nodeport.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-external
+  namespace: app-infrastructure
+spec:
+  selector:
+    app: ollama
+  ports:
+    - protocol: TCP
+      port: 11434
+      targetPort: 11434
+      nodePort: 31434
+  type: NodePort
