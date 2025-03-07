@@ -1,0 +1,25 @@
+# Initialize cluster 
+sudo kubeadm init --pod-network-cidr=10.244.0.0/16
+
+# Startup flannel
+kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml --validate=false
+
+# For dev env
+microk8s kubectl taint nodes --all node-role.kubernetes.io/control-plane-
+
+microk8s kubectl apply -f namespace.yaml
+microk8s kubectl apply -f postgres-deployment.yaml
+microk8s kubectl apply -f redis-deployment.yaml
+microk8s kubectl apply -f pgbouncer-deployment.yaml
+microk8s kubectl apply -f ollama-deployment.yaml
+
+# Apply Autoscaling
+microk8s kubectl apply -f autoscaling.yaml
+
+# Verify deployments
+microk8s kubectl get deployments -n app-infrastructure
+microk8s kubectl get services -n app-infrastructure
+microk8s kubectl get pods -n app-infrastructure
+
+# Delete deployments
+microk8s kubectl delete deployment postgres-deployment redis-deployment ollama-deployment pgbouncer-deployment -n app-infrastructure
