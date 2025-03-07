@@ -8,26 +8,6 @@ from backend.utils.llm_helper import chat, stream_parser
 from backend.utils.postgres_manager import PostgresManager
 from backend.utils.redis_manager import RedisManager
 
-def format_datetime(dt):
-    """Format datetime to a user-friendly string (e.g., "6th March 2025, 7:00 pm")"""
-    if not dt:
-        return ""
-    
-    # Convert to user's timezone if needed (default to UTC)
-    local_tz = pytz.timezone('UTC')  # Replace with user's timezone
-    if dt.tzinfo is None:
-        dt = pytz.utc.localize(dt)
-    local_dt = dt.astimezone(local_tz)
-    
-    # Format the date with day suffix (e.g., 1st, 2nd, 3rd)
-    day = local_dt.day
-    if 4 <= day <= 20 or 24 <= day <= 30:
-        suffix = "th"
-    else:
-        suffix = {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
-    
-    return local_dt.strftime(f"%-d{suffix} %B %Y, %-I:%M %p")
-
 def main():
     # Set page configuration
     '''st.set_page_config(
@@ -99,11 +79,10 @@ def main():
         # Display each session with formatted timestamps
         for session in chat_sessions:
             session_title = session['title']
-            formatted_date = format_datetime(session['updated_at'])
             
             # Create a special button that looks like a session entry
             if st.button(
-                f"**{session_title}**\n{formatted_date}",
+                f"**{session_title}**",
                 key=f"session_{session['session_id']}",
                 help="Click to load this chat session"
             ):

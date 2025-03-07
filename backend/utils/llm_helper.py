@@ -9,7 +9,7 @@ def chat(user_prompt, model, images:None):
     if model == "deepseek-r1:1.5b":
         stream = ollama.chat(
             model=model,
-            messages=[{'role': 'assistant', 'content': system_prompt},
+            messages=[{'role': 'system', 'content': system_prompt},
                     {'role': 'user', 'content': f"{user_prompt}"}],
             stream=True,
         )
@@ -18,7 +18,7 @@ def chat(user_prompt, model, images:None):
     elif model == "granite3.2-vision":
         stream = ollama.chat(
             model=model,
-            messages=[{'role': 'assistant', 'content': system_prompt, "images":[]},
+            messages=[{'role': 'system', 'content': system_prompt, "images":[]},
                     {'role': 'user', 'content': f"{user_prompt}", 'images':[images] if images else []}],
             stream=True,
         )

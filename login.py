@@ -121,7 +121,7 @@ def show_sessions_page():
                     st.text_area(
                         "First message:", 
                         session_preview['first_message'][:100] + "..." if len(session_preview['first_message']) > 100 else session_preview['first_message'],
-                        height=60,
+                        height=70,
                         disabled=True
                     )
                 
