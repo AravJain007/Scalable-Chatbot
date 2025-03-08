@@ -9,11 +9,6 @@ from backend.utils.postgres_manager import PostgresManager
 from backend.utils.redis_manager import RedisManager
 
 def main():
-    # Set page configuration
-    '''st.set_page_config(
-        page_title=Config.PAGE_TITLE,
-        initial_sidebar_state="expanded"
-    )'''
     st.title(Config.PAGE_TITLE)
     
     # Ensure user is logged in
@@ -26,25 +21,25 @@ def main():
     # Initialize session states
     if "active_session_id" not in st.session_state:
         st.session_state.active_session_id = None
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
     if "model" not in st.session_state:
         st.session_state.model = Config.OLLAMA_MODELS[0]
-    
-    # Function to start a new chat session
+
     def start_new_session():
         st.session_state.active_session_id = None
-        st.session_state.messages = []
         st.session_state.model = Config.OLLAMA_MODELS[0]
     
     # Function to load a chat session
     def load_chat_session(session_id):
         messages = PostgresManager.get_session_messages(session_id)
+
         st.session_state.active_session_id = session_id
-        st.session_state.messages = [{
-            "role": msg["role"],
-            "content": msg["content"]
-        } for msg in messages]
+        recent_messages = messages[-3:] if len(messages) >=3 else messages
+        for msg in reversed(recent_messages):
+            RedisManager.update_recent_context(
+                session_id, 
+                msg["role"], 
+                msg["content"]
+            )
         
         # Also update the session model if available
         session_info = PostgresManager.get_session_preview(session_id)
@@ -96,13 +91,19 @@ def main():
         st.markdown("Select a model and start typing to begin your conversation.")
     
     # Display existing chat messages
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+    if st.session_state.active_session_id:
+        messages = PostgresManager.get_session_messages(st.session_state.active_session_id)
+        for message in messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
     
     # User input area
     user_prompt = st.chat_input("Type your message here...")
     
+    if st.session_state.model == "granite3.2-vision":
+        img_data = st.file_uploader('Upload a PNG image', type=['png', 'jpg', 'jpeg'])
+        print(img_data)
+            
     # Handle user input
     if user_prompt:
         model = st.session_state.model
@@ -120,11 +121,15 @@ def main():
         with st.chat_message("user"):
             st.markdown(user_prompt)
         
-        # Add user message to session state
-        st.session_state.messages.append({"role": "user", "content": user_prompt})
-        
-        # Save user message to database
+        # Save user message to DB
         PostgresManager.add_message(st.session_state.active_session_id, "user", user_prompt)
+        
+        # Update Redis context with new user message
+        RedisManager.update_recent_context(
+            st.session_state.active_session_id,
+            "user",
+            user_prompt
+        )
         
         # Cache key for potentially reusing responses
         cache_key = f"chat:{model}:{hashlib.md5(user_prompt.encode()).hexdigest()}"
@@ -133,11 +138,12 @@ def main():
         if cached_response:
             # Use cached response
             output_response = cached_response
+            output_placeholder.markdown(output_response)
         else:
             # Handle special models with thinking capabilities
             if model == "deepseek-r1:1.5b":
                 # Get response from model with thinking
-                llm_stream = chat(user_prompt, model, images=None)
+                llm_stream = chat(st.session_state.active_session_id, model, images=None)
                 
                 # Create a status container for thinking state
                 with st.status("Thinking...", expanded=True) as status:
@@ -173,14 +179,9 @@ def main():
             
             # Handle vision models
             elif model == "granite3.2-vision":
-                uploaded_files = st.session_state.get('uploaded_files', [])
-                img_data = None
-                
-                if uploaded_files:
-                    img_data = uploaded_files[0]
                 
                 # Get response from model
-                llm_stream = chat(user_prompt, model, img_data)
+                llm_stream = chat(st.session_state.active_session_id, model, img_data)
                 
                 # Display assistant response
                 with st.chat_message("assistant"):
@@ -188,18 +189,20 @@ def main():
                     output_placeholder = st.empty()
                     
                     for token in stream_parser(llm_stream):
-                        if token and token not in ["<think>", "</think>"]:
-                            output_response += token
-                            output_placeholder.markdown(output_response)
+                        output_response += token
+                        output_placeholder.markdown(output_response)
             
             # Cache the response
             RedisManager.cache_response(cache_key, output_response)
         
-        # Add assistant response to session state
-        st.session_state.messages.append({"role": "assistant", "content": output_response})
-        
-        # Save assistant response to database
         PostgresManager.add_message(st.session_state.active_session_id, "assistant", output_response)
+        
+        # Update Redis with assistant response
+        RedisManager.update_recent_context(
+            st.session_state.active_session_id,
+            "assistant",
+            output_response
+        )
 
 if __name__ == "__main__":
     main()

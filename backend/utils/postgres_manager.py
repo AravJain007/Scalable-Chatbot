@@ -4,6 +4,7 @@ import psycopg2.extras
 from datetime import datetime
 import streamlit as st
 from backend.config import Config
+from backend.utils.redis_manager import RedisManager
 
 class PostgresManager:
     @classmethod
@@ -97,6 +98,8 @@ class PostgresManager:
             return None
         finally:
             conn.close()
+            
+        RedisManager.update_recent_context(session_id, role, content)
 
     @classmethod
     def get_user_chat_sessions(cls, user_id, limit=20):

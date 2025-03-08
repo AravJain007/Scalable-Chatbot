@@ -112,3 +112,36 @@ class RedisManager:
         finally:
             if redis_client:
                 redis_client.close()
+                
+    @classmethod
+    def update_recent_context(cls, session_id, role, content):
+        redis_client = cls.get_connection()
+        if not redis_client:
+            return False
+        try:
+            message = json.dumps({"role": role, "content": content})
+            with redis_client.pipeline() as pipe:
+                pipe.lpush(f"chat_history:{session_id}", message)
+                pipe.ltrim(f"chat_history:{session_id}", 0, 7)  # Keep 3 latest, 7 because it is 4 user and 3 assistant messages
+                pipe.expire(f"chat_history:{session_id}", 86400)  # Auto-cleanup
+                pipe.execute()
+            return True
+        except Exception as e:
+            st.error(f"Redis context update error: {e}")
+            return False
+        finally:
+            redis_client.close()
+
+    @classmethod
+    def get_recent_context(cls, session_id):
+        redis_client = cls.get_connection()
+        if not redis_client:
+            return []
+        try:
+            history = redis_client.lrange(f"chat_history:{session_id}", 0, 7)
+            return [json.loads(msg) for msg in reversed(history)] if history else []
+        except Exception as e:
+            st.error(f"Redis context fetch error: {e}")
+            return []
+        finally:
+            redis_client.close()
