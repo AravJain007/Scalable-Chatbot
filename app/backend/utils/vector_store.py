@@ -1,63 +1,33 @@
 from qdrant_client import QdrantClient, models
 from typing import List, Optional, Dict
 import logging
-from datetime import datetime, timedelta, timezone
-import uuid
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from backend.config import Config
 
 class VectorStoreManager:
-    def __init__(self, retention_hours: int = 24):
-        self.client = QdrantClient(
-            host="qdrant",
-            port=6333,
-            grpc_port=6334,
-            prefer_grpc=True
+    DENSE_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+    SPARSE_MODEL = "prithivida/Splade_PP_en_v1"
+    def __init__(self):
+        self.collection_name = "document"
+        # initialize Qdrant client
+        self.qdrant_client = QdrantClient(f"http://{Config.QDRANT_HOST}:{Config.QDRANT_PORT}")
+        self.qdrant_client.set_model(self.DENSE_MODEL)
+        # comment this line to use dense vectors only
+        # self.qdrant_client.set_sparse_model(self.SPARSE_MODEL)
+        # Initialize text splitter
+        self.text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=750,
+            chunk_overlap=200,
+            length_function=len,
+            is_separator_regex=False,
         )
-        self.collection_name = "documents"
-        self.retention_hours = retention_hours
-        self._init_collection()
-        
-        # Initialize FastEmbed model
-        self.client.set_model(
-            embedding_model_name="sentence-transformers/all-MiniLM-L6-v2",
-            model_class="fastembed",
-            cache_dir="/models",
-            threads=4
-        )
-
-    def _init_collection(self):
-        """Initialize collection with FastEmbed dimensions"""
-        try:
-            # Check if collection exists
-            collections = self.client.get_collections()
-            collection_exists = any(col.name == self.collection_name for col in collections.collections)
-            
-            if not collection_exists:
-                self.client.create_collection(
-                    collection_name=self.collection_name,
-                    vectors_config=models.VectorParams(
-                        size=384,  # all-MiniLM-L6-v2 output dimension
-                        distance=models.Distance.COSINE
-                    )
-                )
-                
-                # Create index for session filtering
-                self.client.create_payload_index(
-                    collection_name=self.collection_name,
-                    field_name="session_id",
-                    field_schema=models.PayloadSchemaType.KEYWORD
-                )
-                
-                # Create index for expires_at field for manual cleanup
-                self.client.create_payload_index(
-                    collection_name=self.collection_name,
-                    field_name="expires_at",
-                    field_schema=models.PayloadSchemaType.DATETIME
-                )
-                
-                logging.info(f"Collection {self.collection_name} initialized")
-        except Exception as e:
-            logging.error(f"Collection init error: {str(e)}")
-            raise
+        if not self.qdrant_client.collection_exists(self.collection_name):
+            self.qdrant_client.create_collection(
+                collection_name=self.collection_name,
+                vectors_config=self.qdrant_client.get_fastembed_vector_params(),
+                # comment this line to use dense vectors only
+                # sparse_vectors_config=self.qdrant_client.get_fastembed_sparse_vector_params(),  
+            )
 
     def _generate_embeddings(self, texts: List[str]) -> List[List[float]]:
         """Use Qdrant's FastEmbed integration"""
@@ -67,44 +37,34 @@ class VectorStoreManager:
         """Store documents with metadata in batches"""
         if not documents:
             return
+        
+        try:
+            # Process documents with chunking
+            processed_docs = []
+            metadata = []
+            for doc in documents:
+                # Split text into chunks
+                chunks = self.text_splitter.split_text(doc["text"])
+                for chunk in chunks:
+                    processed_docs.append(chunk)
+                    metadata.append({
+                        "title": doc.get("title", "No Title"),
+                        "source": doc.get("source", ""),
+                        "session_id": session_id
+                    })
 
-        batch_size = 100
-        expires_at = datetime.now(timezone.utc) + timedelta(hours=self.retention_hours)
+            self.qdrant_client.add(
+                collection_name=self.collection_name,
+                documents=processed_docs,
+                metadata=metadata
+            )
+        except Exception as e:
+            logging.error(f"Storing error: {str(e)}")
 
-        for batch_idx in range(0, len(documents), batch_size):
-            batch = documents[batch_idx:min(batch_idx + batch_size, len(documents))]
-            
-            try:
-                embeddings = self._generate_embeddings([doc["text"] for doc in batch])
-                
-                points = [
-                    models.PointStruct(
-                        id=str(uuid.uuid4()),
-                        vector=embedding,
-                        payload={
-                            "text": doc["text"],
-                            "source": doc.get("source", ""),
-                            "session_id": session_id,
-                            "expires_at": expires_at.isoformat()
-                        }
-                    )
-                    for doc, embedding in zip(batch, embeddings)
-                ]
-
-                self.client.upsert(
-                    collection_name=self.collection_name,
-                    points=points,
-                    wait=True  # Wait for completion to ensure data is available for search
-                )
-            except Exception as e:
-                logging.error(f"Batch {batch_idx} error: {str(e)}")
 
     def search(self, query: str, session_id: Optional[str] = None, top_k: int = 3) -> List[Dict[str, str]]:
-        """Search with source metadata and session filtering"""
+        """Search with source metadata and optional session filtering"""
         try:
-            query_embedding = self._generate_embeddings([query])[0]
-            
-            # Create filter if session_id is provided
             filter_condition = None
             if session_id:
                 filter_condition = models.Filter(
@@ -116,21 +76,21 @@ class VectorStoreManager:
                     ]
                 )
             
-            results = self.client.search(
+            results = self.qdrant_client.query(
                 collection_name=self.collection_name,
-                query_vector=query_embedding,
+                query_text=query,
                 limit=top_k,
                 query_filter=filter_condition
             )
             
             search_results = [
-                {"text": hit.payload["text"], "source": hit.payload.get("source", "Unknown")}
-                for hit in results
+                {
+                    "title": result.metadata.get("title", ""),  # Title from metadata
+                    "text": result.document,                        # Text from the main document field
+                    "source": result.metadata.get("source", "")     # Source from metadata
+                }
+                for result in results  # Iterate over each QueryResponse
             ]
-            
-            # Schedule cleanup of documents after search (if using the quick cleanup approach)
-            # This is optional - you can also keep the documents for the full retention period
-            # self.delete_session_embeddings(session_id)
             
             return search_results
         except Exception as e:
@@ -143,7 +103,7 @@ class VectorStoreManager:
             return
             
         try:
-            self.client.delete(
+            self.qdrant_client.delete(
                 collection_name=self.collection_name,
                 points_selector=models.FilterSelector(
                     filter=models.Filter(
@@ -160,30 +120,3 @@ class VectorStoreManager:
             logging.info(f"Scheduled deletion of embeddings for session {session_id}")
         except Exception as e:
             logging.error(f"Error deleting session embeddings: {str(e)}")
-
-    def cleanup_expired(self):
-        """Remove expired embeddings automatically - can be run via cron job"""
-        try:
-            now = datetime.now(timezone.utc).isoformat()
-            self.client.delete(
-                collection_name=self.collection_name,
-                points_selector=models.FilterSelector(
-                    filter=models.Filter(
-                        must=[
-                            models.FieldCondition(
-                                key="expires_at",
-                                range=models.Range(lt=now)
-                            )
-                        ]
-                    )
-                ),
-                wait=False
-            )
-            logging.info(f"Expired documents cleanup executed at {now}")
-        except Exception as e:
-            logging.error(f"Error in cleanup_expired: {str(e)}")
-
-# You can set up a periodic job to run this cleanup
-if __name__ == "__main__":
-    # For running cleanup via cron job
-    VectorStoreManager().cleanup_expired()

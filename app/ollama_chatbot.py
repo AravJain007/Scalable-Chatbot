@@ -137,6 +137,7 @@ def main():
         if cached_response:
             with st.chat_message("assistant"):
                 st.markdown(cached_response)
+
             PostgresManager.add_message(st.session_state.active_session_id, "assistant", cached_response)
         else:
             messages = RedisManager.get_recent_context(st.session_state.active_session_id)
@@ -168,8 +169,8 @@ def main():
                     )
                     modified_user_message = None
 
-                # Qwen - Function Calling
-            elif model == "qwen2.5:3b":
+            # Qwen - Function Calling
+            elif model == "qwen2.5":
                 with st.status("🛠️ Processing tools...", expanded=True) as tool_status:
                     # First status update for analysis
                     st.write("🔍 Analyzing query for tool requirements...")
@@ -211,7 +212,7 @@ def main():
 
             # Default for other models
             else:
-                modified_user_message = [{"role": "user", "content": user_prompt}]
+                modified_user_message = messages + [{"role": "user", "content": user_prompt}]
                 stream = generate_response(model, modified_user_message)
 
             # Thinking Phase (DeepSeek Only)
@@ -239,13 +240,14 @@ def main():
 
             # Display Final Response
             with st.chat_message("assistant"):
-                output_response = ""
+                output_response = r""
                 output_placeholder = st.empty()
                 
                 for token in stream_parser(stream):
                     if token and token not in ["<think>", "</think>"]:
                         output_response += token
                         output_placeholder.markdown(output_response)
+            
             # Cache and save to DB
             RedisManager.cache_response(cache_key, output_response)
             PostgresManager.add_message(st.session_state.active_session_id, "assistant", output_response)

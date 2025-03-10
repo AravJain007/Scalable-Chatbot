@@ -137,25 +137,6 @@ User Query: "What is the meaning of life?"
 "{user_query}"
 """
 
-def chunk_text(text: str, chunk_size: int = 500) -> List[str]:
-    """Split text into chunks of ~chunk_size characters preserving paragraphs."""
-    chunks = []
-    current_chunk = []
-    current_len = 0
-    
-    for paragraph in text.split('\n\n'):
-        para_len = len(paragraph)
-        if current_len + para_len > chunk_size and current_chunk:
-            chunks.append('\n\n'.join(current_chunk))
-            current_chunk = []
-            current_len = 0
-        current_chunk.append(paragraph)
-        current_len += para_len
-    
-    if current_chunk:
-        chunks.append('\n\n'.join(current_chunk))
-    return chunks
-
 def evaluate_expression(expression: str) -> str:
     """Safely evaluate a math expression"""
     try:
@@ -211,25 +192,16 @@ def execute_tool(tool_name: str, parameters: Dict[str, Any], session_id: str, st
             status_callback(f"📑 Extracting relevant information from sources: {source_list}")
         else:
             status_callback(f"📑 No sources found. Generating answer from LLM without context...")
-        
-        # Process and chunk results
-        chunks = []
-        for result in web_results:
-            for chunk in chunk_text(result["text"]):
-                chunks.append({
-                    "text": chunk,
-                    "source": result["source"]
-                })
     
         # Store in vector DB with session_id for filtering
-        if chunks:
-            vector_store.store_documents(chunks, session_id=session_id)
+        if sources:
+            vector_store.store_documents(web_results, session_id=session_id)
         
         # Retrieve relevant chunks - filtered by session ID
         rag_results = vector_store.search(query, session_id=session_id)
-        
+
         # Clean up the documents immediately after search
-        # vector_store.delete_session_embeddings(session_id)
+        vector_store.delete_session_embeddings(session_id)
         
         status_callback("✅ Information processing complete!")
         

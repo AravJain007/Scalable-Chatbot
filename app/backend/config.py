@@ -24,11 +24,13 @@ class Config:
 - Iterate on responses if additional context is provided."""
 
    PAGE_TITLE = "Scalable-Chatbot"
-   OLLAMA_MODELS = ('deepseek-r1:1.5b', 'qwen2.5:3b', 'granite3.2-vision')
+   OLLAMA_MODELS = ('deepseek-r1:1.5b', 'qwen2.5', 'granite3.2-vision')
+   
    WEB_SEARCH_HOST = os.getenv("WEB_SEARCH_HOST", "web-search")
    WEB_SEARCH_PORT = os.getenv("WEB_SEARCH_PORT", 5069)
-   POSTGRES_HOST = os.getenv("POSTGRES_HOST", "postgres")  # PgBouncer service
-   POSTGRES_PORT = os.getenv("POSTGRES_PORT", 6432)         # PgBouncer port
+   
+   POSTGRES_HOST = os.getenv("POSTGRES_HOST", "postgres")
+   POSTGRES_PORT = os.getenv("POSTGRES_PORT", 6432)
    POSTGRES_DB = "yourappdb"
    POSTGRES_USER = "postgres"    # Default user
    POSTGRES_PASSWORD = "sarvam_litmus_test"
@@ -38,45 +40,24 @@ class Config:
    
    OLLAMA_HOST = os.getenv("OLLAMA_HOST", "ollama")
    OLLAMA_PORT = os.getenv("OLLAMA_PORT", 11434)
+   
+   QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
+   QDRANT_PORT = int(os.getenv("QDRANT_PORT", 6333))
+   
    CALCULATOR_CONTEXT = """### **CALCULATOR OUTPUT FORMATTING INSTRUCTIONS:**  
 
 1. **Mathematical Expressions:**  
-   - Use proper LaTeX formatting for all mathematical expressions:  
-     - **Standalone equations:** Enclose in double dollar signs `$$...$$`  
-     - **Inline equations:** Enclose in single dollar signs `$...$`  
-     - **Functions:** Always use double backslash instead of single backslash for functions
+   - Use proper LaTeX formatting for all mathematical expressions.
 
 2. **Step-by-Step Solutions:**  
    - Break down calculations into clear, sequential steps.  
    - Each mathematical step should be displayed using LaTeX formatting in a separate line.  
    - Provide explanations between steps when necessary.  
 
-   **Example:**  
-   
-   The depreciation of an asset is calculated as:   
-   
-   $\\text{Remaining Value} = \\text{Initial Value} \\times (1 - \\text{Depreciation Rate})^{\\text{Years}}$  
-   
-   Given an initial value of 10,000 rupees with a 20% annual depreciation over 4 years:  
-   
-   $$  
-   \\text{Remaining Value} = 10{,}000 \\times (1 - 0.20)^4  
-   $$  
-   $$  
-   = 10{,}000 \\times (0.80)^4  
-   $$  
-   $$  
-   = 10{,}000 \\times 0.4096  
-   $$  
-   $$  
-   = 4{,}096 \\text{ rupees}  
-   $$  
-
 3. **Output Structure:**  
-   - Use **bold section headings** (e.g., **Solution:**, **Step 1:**).  
+   - Use **bold section headings** (e.g., **Solution:**, **Step 1:**).
    - Clearly highlight the **final answer**, preferably in bold.  
-   - For complex problems, provide a summary at the end.  
-"""
+   - For complex problems, provide a summary at the end."""
 
    
    WEB_SEARCH_CONTEXT = """### **WEB SEARCH OUTPUT FORMATTING INSTRUCTIONS:**  
@@ -99,7 +80,7 @@ class Config:
      E = mc^2  
      $$  
    
-     Where $E$ is energy, $m$ is mass, and $c$ is the speed of light **(physics.org)[source]**.  
+     Where $E$ is energy, $m$ is mass, and $c$ is the speed of light **[physics.org](source)**.  
 
 3. **Information Organization:**  
    - Structure information logically using:  
@@ -109,5 +90,4 @@ class Config:
    - When multiple sources provide information on the same topic, prioritize based on **relevance and reliability**.  
 
 4. **Streamlit Compatibility:**  
-   - Validate all LaTeX expressions to avoid formatting issues.  
-"""
+   - Validate all LaTeX expressions to avoid formatting issues."""

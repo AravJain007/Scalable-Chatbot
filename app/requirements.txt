@@ -6,3 +6,4 @@ pytz==2024.1
 qdrant-client==1.13.3
 fastembed==0.5.1
 Scrapy==2.11.1
+langchain==0.3.20
