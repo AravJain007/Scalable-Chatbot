@@ -91,3 +91,52 @@ class Config:
 
 4. **Streamlit Compatibility:**  
    - Validate all LaTeX expressions to avoid formatting issues."""
+
+
+   EVALUATION_PROMPT: f"""You are an expert evaluator. Given an array of dictionaries containing a list of sentences and a reference paragraph, determine whether each sentence is explicitly stated in or can be inferred from the reference paragraph.  
+
+- If a sentence is **explicitly present** or **can be inferred**, return `"TRUE"` along with the supporting reference from the paragraph.  
+- If the sentence is **contradicted** or **not found** in the paragraph, return `"FALSE"` with `"NA"` as the reference.  
+
+**Output Format:**  
+```json
+{{
+   "output": [
+      {{"statement1": "TRUE"}},
+      {{"statement2": "FALSE"}},
+      {{"statement3": "FALSE"}}
+   ]
+}}
+```  
+
+Ensure that:  
+- The `"reference"` field contains **only relevant excerpts** from the paragraph. Keep a maximum of 10 - 20 words in reference.
+- If no relevant evidence is found, set `"reference": "NA"`.  
+- The evaluation is **strictly based on the given paragraph** without external assumptions."""
+
+   # Web search evaluation configuration
+   WEB_SEARCH_EVALUATION_ENABLED = True
+   WEB_SEARCH_EVALUATION_MODEL = "qwen2.5"  # Model to use for evaluation
+
+   # Evaluation prompts
+   EVALUATION_PROMPT_TEMPLATE = """
+   You are an expert fact-checker. Your task is to verify the factual accuracy of statements 
+   based on the provided search results. For each statement, determine if it is supported by 
+   the search results.
+
+   Search results:
+   {search_results}
+
+   Statements to evaluate:
+   {statements}
+
+   For each statement, respond with [TRUE] if it is supported by the search results or 
+   [FALSE] if it is not supported or contradicted. Number each response to match the 
+   statement number.
+   """
+
+   # For statements with no search results or unclear evidence
+   EVALUATION_UNCERTAIN_TEMPLATE = """
+   I cannot verify the accuracy of this statement based on the available search results.
+   Please treat this information with caution and verify it independently.
+   """

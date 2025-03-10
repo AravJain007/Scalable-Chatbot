@@ -1,8 +1,10 @@
 # ollama_chatbot.py
 from importlib.metadata import files
 from json import tool
+from turtle import mode
 import streamlit as st
 import hashlib
+import json
 from datetime import datetime
 import pytz
 from backend.config import Config
@@ -25,10 +27,19 @@ def main():
         st.session_state.active_session_id = None
     if "model" not in st.session_state:
         st.session_state.model = Config.OLLAMA_MODELS[0]
+    if "pending_evaluation" not in st.session_state:
+        st.session_state.pending_evaluation = None
+    if "evaluation_stage" not in st.session_state:
+        st.session_state.evaluation_stage = None
+    if "web_search_results" not in st.session_state:
+        st.session_state.web_search_results = None
 
     def start_new_session():
         st.session_state.active_session_id = None
         st.session_state.model = Config.OLLAMA_MODELS[0]
+        st.session_state.pending_evaluation = None
+        st.session_state.evaluation_stage = None
+        st.session_state.web_search_results = None
     
     # Function to load a chat session
     def load_chat_session(session_id):
@@ -99,13 +110,116 @@ def main():
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
     
+    # Handle evaluation stage if active
+    if st.session_state.evaluation_stage == "pending" and st.session_state.pending_evaluation:
+        # First show the original response
+        with st.chat_message("assistant"):
+            st.markdown(st.session_state.pending_evaluation)
+            
+            # Then show the evaluation option
+            st.info("This response contains information from web search. Would you like to evaluate the factual accuracy?")
+            
+            col1, col2 = st.columns(2)
+            if col1.button("Evaluate", type="primary"):
+                st.session_state.evaluation_stage = "evaluating"
+                st.rerun()
+                
+            if col2.button("Don't Evaluate"):
+                # Save original response
+                PostgresManager.add_message(
+                    st.session_state.active_session_id, 
+                    "assistant", 
+                    st.session_state.pending_evaluation
+                )
+                RedisManager.update_recent_context(
+                    st.session_state.active_session_id, 
+                    "assistant", 
+                    st.session_state.pending_evaluation
+                )
+                
+                # Reset evaluation state
+                st.session_state.pending_evaluation = None
+                st.session_state.evaluation_stage = None
+                st.session_state.web_search_results = None
+                st.rerun()
+    
+    elif st.session_state.evaluation_stage == "evaluating" and st.session_state.pending_evaluation:
+        # Perform evaluation
+        with st.status("Evaluating response accuracy...", expanded=True) as status:
+            # Break response into statements
+            response_text = st.session_state.pending_evaluation
+            statements = break_into_statements(response_text)
+            
+            # Get web search results
+            search_results = st.session_state.web_search_results
+            
+            # Prepare evaluation prompt with JSON output format
+            evaluation_results = {}
+            
+            st.write("Analyzing statements for factual accuracy...")
+            
+            # Process statements in batches to avoid long prompts
+            batch_size = 3
+            for i in range(0, len(statements), batch_size):
+                batch = statements[i:i+batch_size]
+                batch_nums = list(range(i+1, i+len(batch)+1))
+                
+                # Create evaluation prompt for this batch
+                evaluation_prompt = create_json_evaluation_prompt(
+                    batch, 
+                    batch_nums,
+                    search_results
+                )
+                
+                st.write(f"Evaluating statements {batch_nums[0]}-{batch_nums[-1]}...")
+                
+                # Send to LLM for evaluation
+                model = st.session_state.model
+                messages = [{"role": "user", "content": evaluation_prompt}]
+                evaluation_stream = generate_response(model, messages)
+                
+                evaluation_response = ""
+                for token in stream_parser(evaluation_stream):
+                    if token:
+                        evaluation_response += token
+                
+                # Parse JSON response
+                batch_results = parse_json_evaluation(evaluation_response)
+                evaluation_results.update(batch_results)
+            
+            # Apply highlighting
+            highlighted_response = apply_highlighting(response_text, statements, evaluation_results)
+            status.update(label="Evaluation complete", state="complete", expanded=False)
+        
+        # Display highlighted response
+        with st.chat_message("assistant"):
+            st.markdown(highlighted_response)
+            
+            # Save highlighted response
+            PostgresManager.add_message(
+                st.session_state.active_session_id, 
+                "assistant", 
+                highlighted_response
+            )
+            RedisManager.update_recent_context(
+                st.session_state.active_session_id, 
+                "assistant", 
+                highlighted_response
+            )
+            
+            # Reset evaluation state
+            st.session_state.pending_evaluation = None
+            st.session_state.evaluation_stage = None
+            st.session_state.web_search_results = None
+    
+    # Normal chat input functionality
     user_prompt = st.chat_input("Type your message here...")
     img_data = None
     if st.session_state.model == "granite3.2-vision":
         img_data = st.file_uploader('Upload a PNG image', type=['png', 'jpg', 'jpeg'])
             
     # Handle user input
-    if user_prompt:
+    if user_prompt and st.session_state.evaluation_stage is None:
         model = st.session_state.model
         
         # Create session if not exists
@@ -178,6 +292,8 @@ def main():
                     tool_name = tool_selection.get("tool", "none")
                     tool_results = ""
                     tool_context = None
+                    is_web_search = False  # Flag to track if we used web search
+                    search_results = None  # Store search results for evaluation
 
                     if tool_name != "none":
                         # Display selected tool
@@ -189,6 +305,18 @@ def main():
                             
                         parameters = tool_selection.get("parameters", {})
                         tool_results = execute_tool(tool_name, parameters, st.session_state.active_session_id, update_tool_status)
+                        
+                        # Set web_search flag if applicable
+                        is_web_search = (tool_name == "web_search")
+                        
+                        # Save search results for evaluation if needed
+                        if is_web_search:
+                            # Assuming tool_results contains search results
+                            # This part depends on how your web search returns results
+                            try:
+                                search_results = tool_results
+                            except:
+                                search_results = f"Search results: {tool_results}"
                         
                         # Build tool context
                         if tool_name == "calculator":
@@ -209,11 +337,13 @@ def main():
             elif model == "deepseek-r1:1.5b":
                 modified_user_message = messages + [{"role": "user", "content": user_prompt}]
                 stream = generate_response(model, modified_user_message)
+                is_web_search = False
 
             # Default for other models
             else:
                 modified_user_message = messages + [{"role": "user", "content": user_prompt}]
                 stream = generate_response(model, modified_user_message)
+                is_web_search = False
 
             # Thinking Phase (DeepSeek Only)
             if model == "deepseek-r1:1.5b":
@@ -248,10 +378,136 @@ def main():
                         output_response += token
                         output_placeholder.markdown(output_response)
             
-            # Cache and save to DB
+            # Cache response
             RedisManager.cache_response(cache_key, output_response)
-            PostgresManager.add_message(st.session_state.active_session_id, "assistant", output_response)
-            RedisManager.update_recent_context(st.session_state.active_session_id, "assistant", output_response)
+            
+            # If web search was used, enter evaluation stage
+            if model == "qwen2.5":
+                if is_web_search:
+                    st.session_state.pending_evaluation = output_response
+                    st.session_state.web_search_results = search_results
+                    st.session_state.evaluation_stage = "pending"
+                    st.rerun()
+            else:
+                # Save to DB for non-web search responses
+                PostgresManager.add_message(st.session_state.active_session_id, "assistant", output_response)
+                RedisManager.update_recent_context(st.session_state.active_session_id, "assistant", output_response)
+
+# Helper functions for evaluation
+def break_into_statements(text):
+    """
+    Break text into individual statements for evaluation.
+    This is a simple implementation - for production, you might want more sophisticated sentence parsing.
+    """
+    # Split by periods, exclamation points, and question marks
+    sentences = []
+    current_sentence = ""
+    
+    for char in text:
+        current_sentence += char
+        if char in ['.', '!', '?'] and len(current_sentence.strip()) > 0:
+            sentences.append(current_sentence.strip())
+            current_sentence = ""
+    
+    # Add any remaining text as a sentence
+    if current_sentence.strip():
+        sentences.append(current_sentence.strip())
+    
+    # Filter out very short statements, headings, or other non-factual content
+    return [s for s in sentences if len(s.split()) > 3 and not s.startswith('#')]
+
+def create_json_evaluation_prompt(statements, statement_numbers, search_results):
+    """Create a prompt for the LLM to evaluate statements with JSON output"""
+    numbered_statements = [f"{i}. {statement}" for i, statement in zip(statement_numbers, statements)]
+    statements_text = "\n".join(numbered_statements)
+    
+    return f"""You are a factual accuracy evaluator. 
+Evaluate each statement below against the provided search results to determine if it's accurate.
+
+SEARCH RESULTS:
+{search_results}
+
+STATEMENTS TO EVALUATE:
+{statements_text}
+
+Provide your evaluation as a JSON object with the following structure:
+{{
+  "evaluations": [
+    {{
+      "statement_number": 1,
+      "is_accurate": true/false,
+      "confidence": "high/medium/low",
+      "explanation": "Brief explanation"
+    }},
+    ...
+  ]
+}}
+
+Only include the JSON object in your response, nothing else.
+"""
+
+def parse_json_evaluation(evaluation_response):
+    """
+    Parse the LLM's JSON evaluation response
+    Returns a dictionary mapping statement numbers to accuracy evaluations
+    """
+    # Extract JSON from response (in case there's other text)
+    try:
+        # Find JSON content (anything between braces)
+        json_start = evaluation_response.find('{')
+        json_end = evaluation_response.rfind('}') + 1
+        
+        if json_start >= 0 and json_end > 0:
+            json_content = evaluation_response[json_start:json_end]
+            data = json.loads(json_content)
+            
+            # Build the results dictionary
+            results = {}
+            if "evaluations" in data:
+                for eval_item in data["evaluations"]:
+                    statement_num = eval_item.get("statement_number")
+                    is_accurate = eval_item.get("is_accurate", True)
+                    
+                    if statement_num is not None:
+                        results[statement_num] = is_accurate
+            
+            return results
+        else:
+            # Fallback if no JSON brackets found
+            return {}
+            
+    except json.JSONDecodeError:
+        # Fallback with manual parsing in case JSON is malformed
+        results = {}
+        if "statement_number" in evaluation_response and "is_accurate" in evaluation_response:
+            lines = evaluation_response.split("\n")
+            for line in lines:
+                if "statement_number" in line and "is_accurate" in line:
+                    try:
+                        num_part = line.split("statement_number")[1].split(",")[0]
+                        num = int(''.join(filter(str.isdigit, num_part)))
+                        
+                        is_accurate = "true" in line.lower() and "false" not in line.lower()
+                        results[num] = is_accurate
+                    except:
+                        continue
+        return results
+
+def apply_highlighting(text, statements, evaluation_results):
+    """
+    Apply highlighting to the original text based on evaluation results
+    """
+    highlighted_text = text
+    
+    # Replace statements that were marked as inaccurate (false)
+    for i, statement in enumerate(statements, 1):
+        if i in evaluation_results and not evaluation_results[i]:
+            # Mark false statements with red highlighting (using Streamlit markdown syntax)
+            highlighted_statement = f":red[:red-background[{statement}]]"
+            # Replace in the text, being careful about exact matches
+            highlighted_text = highlighted_text.replace(statement, highlighted_statement)
+    
+    return highlighted_text
 
 if __name__ == "__main__":
     main()

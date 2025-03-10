@@ -280,7 +280,7 @@ def generate_response(model: str, tool_context: Optional[str] = None):
         messages=tool_context,
         stream=True,
         options={
-            "num_ctx": 4096
+            "num_ctx": 8192
         } 
     )
     
@@ -290,3 +290,9 @@ def generate_response(model: str, tool_context: Optional[str] = None):
 def stream_parser(stream):
     for chunk in stream:
         yield chunk['message']['content']
+        
+def add_highlight(response_sentences, validation_list, bg="red", text="red"):
+    return [
+        f":{text}[:{bg}-background[" + sentence + "]]" if not is_valid else sentence
+        for sentence, is_valid in zip(response_sentences, validation_list)
+    ]
