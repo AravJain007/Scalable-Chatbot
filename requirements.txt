@@ -1,5 +1,0 @@
-psycopg2==2.9.9
-ollama==0.4.7
-streamlit==1.42.0
-redis==5.2.0
-pytz==2024.1 
