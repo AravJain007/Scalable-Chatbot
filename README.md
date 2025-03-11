@@ -84,19 +84,19 @@ The system is built on a microservices architecture, with each component contain
 
 **Key Architectural Decisions**:
 
-- **Service Isolation**: Each component runs in its own container with defined resource limits, preventing cascading failures
-- **Internal Network**: Services communicate over a private Docker network, with only NGINX exposed to the outside world
-- **Health Checks**: Integrated health monitoring for all critical services
-- **Resource Management**: Container-level CPU and memory limits prevent resource contention
+- **Service Isolation**: Each component runs in its own container with defined resource limits, preventing cascading failures.
+- **Internal Network**: Services communicate over a private Docker network, with only NGINX exposed to the outside world.
+- **Health Checks**: Integrated health monitoring for all critical services.
+- **Resource Management**: Container-level CPU and memory limits prevent resource contention.
 
 **Component Interactions**:
 
-- The Streamlit app serves as the central orchestrator, connecting user interfaces with backend services
-- PostgreSQL maintains persistent chat history and user session data
+- The Streamlit app serves as the central orchestrator, connecting user interfaces with backend services.
+- PostgreSQL maintains persistent chat history and user session data.
 - Redis provides high-speed caching for recent conversation context and response caching
-- Ollama hosts multiple language models accessed via API calls
-- Specialized microservices handle web search and calculation tasks
-- Custom evaluation logic assesses factual accuracy by validating generated content against web search results
+- Ollama hosts multiple language models accessed via API calls. This can be replaced by vLLM but it does not permit multiple model hosting on a single GPU whereas Ollama does.
+- Specialized microservices handle web search and calculation tasks.
+- Custom evaluation logic assesses factual accuracy by validating generated content against web search results.
 
 ### 2. Scalability
 
@@ -104,29 +104,27 @@ The system is designed to scale both vertically and horizontally to handle incre
 
 **Load Handling Strategy**:
 
-- **Response Caching**: Identical queries receive cached responses, dramatically reducing LLM calls
+- **Response Caching**: Identical queries receive cached responses, dramatically reducing LLM calls and response times for users.
 - **Connection Pooling**: Database connections are pooled to handle concurrent requests efficiently
 - **Asynchronous Processing**: Long-running operations like web searches run asynchronously
 - **Stateless Design**: Application containers are stateless, enabling easy horizontal scaling
 
-**Scaling to 10,000 Users**:
+**Scaling to 10,000+ Users**:
 
 - **Horizontal Scaling**: The Streamlit app can be replicated across multiple instances, with NGINX distributing traffic
-- **Database Sharding**: PostgreSQL can be sharded by user ID for distributed data storage
+- **Database Sharding**: PostgreSQL can be sharded by geolocation of the user for distributed data storage and faster access in the region
 - **Read Replicas**: Database read replicas can be added to handle query-heavy workloads
 - **Redis Cluster**: Redis can be configured as a cluster for distributed caching
 - **Model Deployment Strategies**:
-  - Multiple Ollama instances can be deployed to distribute model inference load
-  - Smaller specialized models reduce resource requirements per request
+  - Multiple vLLM (one per model, each individually scalable) instances can be deployed to distribute model inference load. Ollama was used due to local machine constraints for hosting multiple models and inbuilt queue management.
+  - Smaller specialized models reduce resource requirements per request and increase throughput speed.
 
 **Potential Bottlenecks and Solutions**:
 
 - **LLM Inference**: The most resource-intensive component
-  - Solution: Batch similar requests, implement queue management, and scale Ollama horizontally
-- **Database Write Operations**:
-  - Solution: Implement write-behind caching and eventual consistency
+  - Solution: Batch similar requests, implement queue management, and scale using vLLM horizontally.
 - **Web Search Latency**:
-  - Solution: Parallel request processing and aggressive caching of search results
+  - Solution: Parallel request processing and caching of search results
 
 **Horizontal vs. Vertical Scaling Strategy**:
 
@@ -158,16 +156,13 @@ The system incorporates multiple reliability mechanisms to ensure consistent ope
 - **Context Management**: Redis maintains recent conversation context to ensure coherent responses
 - **Error Boundary Handling**: Streamlit components are designed to fail independently without crashing the entire application
 
-**Monitoring and Observability** (Planned Enhancements):
+**Monitoring and Observability**:
 
-- **Logging Strategy**: Centralized logging with structured formats
-- **Performance Metrics**: Response time, error rates, and resource utilization tracking
-- **Alerting**: Automated notifications for service degradation or failure
-- **Audit Trails**: Complete history of system interactions for debugging and improvement
+- **Current Logging:** Currently logging has been implemented only for error detection in containers and not for resource usage. Prometheus and Grafana can be used for tracking resource ustilization.
 
 ### 4. Cost Considerations
 
-The system is designed with cost efficiency as a core principle.
+The system is designed with cost efficiency as one of the core principle.
 
 **Operational Cost Management**:
 
@@ -177,21 +172,20 @@ The system is designed with cost efficiency as a core principle.
   - Small 1.5B parameter model (DeepSeek-R1) for coding tasks
   - Vision model only activated when images are present
   - Larger model (Qwen2.5) only used when tool capabilities are required
-- **Local Model Deployment**: On-premises Ollama deployment eliminates API costs for organizations with existing hardware
+- **Local Model Deployment**: On-premises Ollama (vLLM in prod) deployment eliminates API costs for organizations with existing hardware. This can be determined based on the usage. Like the current implementation of chatbot requires multiple calls for answering one query and then re-evaluating the answer generated. In such cases it is usually better to have a self hosted LLM. A self hosted LLM can easily offer savings if it is optimally utilizing GPUs.
 
 **LLM Efficiency Considerations**:
 
-- **Prompt Engineering**: Carefully designed prompts minimize token usage
+- **Prompt Engineering**: Carefully designed prompts to minimize token usage and batching of the evaluate function queries for improved load management.
 - **Context Pruning**: Only relevant recent context is retained to reduce token consumption
-- **Batched Processing**: Similar requests can be processed in batches when possible
-- **Quantized Models**: Using efficient 4-bit quantized models reduces memory and compute requirements
-- **Inference Optimization**: Streaming responses provide faster perceived performance
+- **Quantized Models**: Using efficient 4-bit quantized models reduces memory and compute requirements.
+- **Inference Optimization**: Streaming responses provide faster perceived performance to the user.
 
 **Scaling Cost Management**:
 
-- **Auto-scaling Rules**: Resources can be automatically scaled up or down based on demand (with Kubernetes)
-- **Off-peak Scaling**: Reduced resource allocation during low-usage periods
-- **Caching Tiers**: Multi-level caching strategy with Redis for responses and PostgreSQL for persistent history
+- **Auto-scaling Rules**: Resources can be automatically and individually scaled up or down based on demand (with Kubernetes).
+- **Off-peak Scaling**: Reduced resource allocation during low-usage periods.
+- **Caching Tiers**: Multi-level caching strategy with Redis for responses and PostgreSQL for persistent history.
 
 ### 5. ML/AI Integration
 
@@ -200,21 +194,21 @@ The system leverages multiple AI models and techniques for optimal performance.
 **LLM Integration Strategy**:
 
 - **Multi-Model Approach**: Different models for different task types:
-  - DeepSeek-R1: Lightweight model with thinking tokens for step-by-step reasoning
-  - Qwen2.5: Tool-using model for web search and calculations
-  - Granite3.2-Vision: Vision capabilities for image analysis
-- **Model Selection Logic**: Automatic model selection based on query type and content
-- **Unified API Layer**: Consistent interface across different models for simplified integration
+  - DeepSeek-R1: Lightweight model with thinking tokens for step-by-step reasoning.
+  - Qwen2.5: Tool-using model for web search and calculations.
+  - Granite3.2-Vision: Vision capabilities for image analysis.
+- **Model Selection Logic**: Model can be selected by the user based on query type and content.
+- **Unified API Layer**: Consistent interface across different models for simplified integration.
 
 **Context Management and Prompt Engineering**:
 
-- **Contextual Storage**: Recent conversation history stored in Redis for fast retrieval
-- **Dynamic Context Window**: Adjustable context length based on conversation complexity
+- **Contextual Storage**: Recent conversation history stored in Redis for fast retrieval.
+- **Sliding Context Window**: Dynamic context window which prioritizes short term information (the previous few messages) to improve performance.
 - **Specialized Prompts**: Custom prompts for different operations:
-  - Tool selection prompts for identifying required external tools
-  - Evaluation prompts for assessing response accuracy
-  - Vision-specific prompts for image analysis
-- **Structured Output Formats**: JSON response formatting for tool requests and evaluations
+  - Tool selection prompts for identifying required external tools.
+  - Evaluation prompts for assessing response accuracy.
+  - Vision-specific prompts for image analysis.
+- **Structured Output Formats**: JSON response formatting for tool requests and evaluations.
 
 **Advanced Techniques**:
 
@@ -253,8 +247,8 @@ The system leverages multiple AI models and techniques for optimal performance.
 1. **Prerequisites**:
 
    - Docker and Docker Compose installed
-   - At least 16GB RAM and 4 CPU cores recommended
-   - 50GB+ disk space for models and data
+   - At least 16GB RAM and 8 GB VRAM recommended
+   - 20GB+ disk space for models and data
 
 2. **Clone Repository**:
 
@@ -285,14 +279,8 @@ The system leverages multiple AI models and techniques for optimal performance.
 
 - **Kubernetes Deployment**: While the current implementation uses Docker Compose, the architecture is designed to be Kubernetes-ready for production deployment with enhanced scalability
 - **Additional LLM Integration**: Support for more models and model providers
-- **Enhanced Evaluation**: More sophisticated fact-checking mechanisms
 - **User Feedback Loop**: Incorporating user feedback for continuous improvement
-- **Vector Database Integration**: Full RAG implementation with document embeddings
 
 ## Note on Current Deployment
 
 The current implementation runs on Docker Compose due to local development constraints. The architecture is designed to be Kubernetes-compatible, and a Kubernetes deployment would be recommended for production environments to leverage advanced features like auto-scaling, load balancing, and advanced monitoring.
-
-```
-
-```
