@@ -50,6 +50,9 @@ services:
   app:
     image: scalable-chatbot-app
     container_name: streamlit-app
+    build:
+      context: ./app
+      dockerfile: Dockerfile
     depends_on:
       postgres:
         condition: service_healthy
@@ -60,7 +63,7 @@ services:
       web-search:
         condition: service_started
     environment:
-      - POSTGRES_HOST=postgres # Use Docker service names
+      - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
       - REDIS_HOST=redis
       - REDIS_PORT=6379
@@ -93,11 +96,12 @@ services:
     cpus: 2
     restart: unless-stopped
     healthcheck:
-      test: [
+      test:
+        [
           "CMD",
           "python",
           "-c",
-          "import requests; requests.get('http://web-search:5069/health')", # Use internal port
+          "import requests; requests.get('http://web-search:5069/health')",
         ]
       interval: 10s
       timeout: 5s
@@ -121,7 +125,7 @@ services:
     container_name: searxng
     environment:
       - SEARXNG_PORT=8080
-      - SEARXNG_BIND_ADDRESS=0.0.0.0 # Allow internal Docker access
+      - SEARXNG_BIND_ADDRESS=0.0.0.0
     # Remove port exposure (internal-only)
     volumes:
       - ./my-instance/searxng:/etc/searxng

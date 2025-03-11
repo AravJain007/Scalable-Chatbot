@@ -513,4 +513,5 @@ def apply_highlighting(text, statements, evaluation_results):
     return highlighted_text
 
 if __name__ == "__main__":
+    PostgresManager.initialize_pool()
     main()
