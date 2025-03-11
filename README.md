@@ -284,3 +284,7 @@ The system leverages multiple AI models and techniques for optimal performance.
 ## Note on Current Deployment
 
 The current implementation runs on Docker Compose due to local development constraints. The architecture is designed to be Kubernetes-compatible, and a Kubernetes deployment would be recommended for production environments to leverage advanced features like auto-scaling, load balancing, and advanced monitoring.
+
+## Demo Video
+
+Link to demo video: [Google Drive Folder Link](https://drive.google.com/drive/folders/1MonwB2ru0LLwzMlFDx_gonS57TCgxWs3)
