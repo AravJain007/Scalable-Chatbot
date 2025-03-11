@@ -1,5 +1,59 @@
 # Scalable LLM Chatbot System
 
+# Index
+
+1. **[Overview](#overview)**  
+   High-level description of the Scalable LLM Chatbot System.
+
+2. **[Features](#features)**  
+   Key capabilities and functionalities.
+
+3. **[System Architecture](#system-architecture)**
+
+   - Visual Diagram
+   - [Component Breakdown](#component-breakdown)
+     - Presentation Layer
+     - Storage Layer
+     - AI Processing Layer
+     - Web Search Layer
+
+4. **[Technical Focus Areas](#technical-focus-areas)**
+
+   - **[1. System Architecture](#technical-focus-areas)**
+     - Key Architectural Decisions
+     - Component Interactions
+   - **[2. Scalability](#2-scalability)**
+     - Load Handling Strategy
+     - Scaling to 10,000+ Users
+     - Bottlenecks & Solutions
+     - Scaling Strategy
+   - **[3. Reliability](#3-reliability)**
+     - Failure Handling
+     - Service Quality
+     - Monitoring
+   - **[4. Cost Considerations](#4-cost-considerations)**
+     - Cost Management
+     - Efficiency Strategies
+     - Scaling Costs
+   - **[5. ML/AI Integration](#5-mlai-integration)**
+     - Model Strategy
+     - Context Management
+     - Advanced Techniques
+     - Optimization
+     - Quality Evaluation
+     - Fallback Strategy
+
+5. **[Deployment](#deployment)**
+
+   - Prerequisites
+   - Installation Steps
+
+6. **[Future Work](#future-work)**
+
+7. **[Current Deployment Note](#note-on-current-deployment)**
+
+8. **[Demo Video](#demo-video)**
+
 ## Overview
 
 The Scalable LLM Chatbot System is a robust, high-performance conversational AI platform designed to support large-scale interactions. It enables seamless conversations with multiple LLMs while maintaining context and reliability, with architecture designed to scale to support thousands of users.
