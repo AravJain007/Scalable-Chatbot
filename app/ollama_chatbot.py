@@ -388,6 +388,9 @@ def main():
                     st.session_state.web_search_results = search_results
                     st.session_state.evaluation_stage = "pending"
                     st.rerun()
+                else:
+                    PostgresManager.add_message(st.session_state.active_session_id, "assistant", output_response)
+                    RedisManager.update_recent_context(st.session_state.active_session_id, "assistant", output_response)
             else:
                 # Save to DB for non-web search responses
                 PostgresManager.add_message(st.session_state.active_session_id, "assistant", output_response)

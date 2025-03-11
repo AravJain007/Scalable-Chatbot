@@ -48,13 +48,10 @@ class Config:
 
 1. **Mathematical Expressions:**  
    - Use proper LaTeX formatting for all mathematical expressions.
+   - For Inline expressions use $..$
+   - For Standalone expressions use $$...$$
 
-2. **Step-by-Step Solutions:**  
-   - Break down calculations into clear, sequential steps.  
-   - Each mathematical step should be displayed using LaTeX formatting in a separate line.  
-   - Provide explanations between steps when necessary.  
-
-3. **Output Structure:**  
+2. **Output Structure:**  
    - Use **bold section headings** (e.g., **Solution:**, **Step 1:**).
    - Clearly highlight the **final answer**, preferably in bold.  
    - For complex problems, provide a summary at the end."""

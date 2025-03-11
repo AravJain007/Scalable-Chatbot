@@ -8,8 +8,7 @@ services:
     environment:
       - POSTGRES_PASSWORD=sarvam_litmus_test
       - POSTGRES_DB=yourappdb
-    ports:
-      - "5432:5432"
+    # Remove port exposure (internal-only)
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d yourappdb"]
       interval: 5s
@@ -31,8 +30,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    ports:
-      - "6397:6379"
+    # Remove port exposure (internal-only)
     restart: unless-stopped
     mem_limit: 4g
     cpus: 4
@@ -42,15 +40,7 @@ services:
     container_name: ollama
     volumes:
       - ollama-data:/root/.ollama
-    ports:
-      - "11434:11434"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+    # Remove port exposure (internal-only)
     environment:
       - OLLAMA_KEEP_ALIVE=24h
     mem_limit: 8g
@@ -60,8 +50,6 @@ services:
   app:
     image: scalable-chatbot-app
     container_name: streamlit-app
-    ports:
-      - "8501:8501"
     depends_on:
       postgres:
         condition: service_healthy
@@ -72,7 +60,7 @@ services:
       web-search:
         condition: service_started
     environment:
-      - POSTGRES_HOST=postgres
+      - POSTGRES_HOST=postgres # Use Docker service names
       - POSTGRES_PORT=5432
       - REDIS_HOST=redis
       - REDIS_PORT=6379
@@ -96,8 +84,7 @@ services:
       dockerfile: Dockerfile
     volumes:
       - ./data/scrapy-data:/data
-    ports:
-      - "5069:5069"
+    # Remove port exposure (internal-only)
     environment:
       - SCRAPY_SETTINGS_MODULE=web_search.settings
       - MAX_DEPTH=2
@@ -106,27 +93,24 @@ services:
     cpus: 2
     restart: unless-stopped
     healthcheck:
-      test:
-        [
+      test: [
           "CMD",
           "python",
           "-c",
-          "import requests; requests.get('http://localhost:5069/health')",
+          "import requests; requests.get('http://web-search:5069/health')", # Use internal port
         ]
       interval: 10s
       timeout: 5s
       retries: 3
     cap_add:
-      - SYS_ADMIN # Required for browser sandboxing
+      - SYS_ADMIN
     security_opt:
-      - seccomp:unconfined # Bypass security restrictions for Playwright
+      - seccomp:unconfined
 
   qdrant:
     image: qdrant/qdrant
     container_name: qdrant
-    ports:
-      - "6333:6333"
-      - "6334:6334"
+    # Remove port exposure (internal-only)
     volumes:
       - ./qdrant-data:/qdrant/storage
       - ./models_cache:/models
@@ -137,11 +121,21 @@ services:
     container_name: searxng
     environment:
       - SEARXNG_PORT=8080
-      - SEARXNG_BIND_ADDRESS=http://localhost:8081/
-    ports:
-      - "8080:8080"
+      - SEARXNG_BIND_ADDRESS=0.0.0.0 # Allow internal Docker access
+    # Remove port exposure (internal-only)
     volumes:
       - ./my-instance/searxng:/etc/searxng
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:latest
+    container_name: nginx
+    ports:
+      - "80:80" # Only Nginx is exposed externally
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - app
     restart: unless-stopped
 
 volumes:
