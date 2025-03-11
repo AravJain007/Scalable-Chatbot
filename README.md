@@ -260,6 +260,7 @@ The system leverages multiple AI models and techniques for optimal performance.
 3. **Docker Deployment**:
 
    ```sh
+   docker volume create ollama-data
    docker-compose up --build
    ```
 
